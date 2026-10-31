@@ -99,7 +99,9 @@ A caller queues a request, then invokes the action.
 3. Invoke the action: `herdr plugin action invoke claude-reload.reload`. It returns at once; the run happens in the
    herdr server.
 
-`herdr plugin action invoke` carries no arguments of its own, which is why the request is a file.
+`herdr plugin action invoke` carries no arguments of its own, which is why the request is a file. It lives in the
+config dir, not the state dir herdr's docs suggest for runtime files, because `herdr plugin config-dir` is the only
+command that tells a caller outside the plugin where one of its folders is.
 
 ### The result
 
