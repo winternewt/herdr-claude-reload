@@ -19,7 +19,8 @@ A request is tried once per pass, and only types when herdr says, at that moment
 
 Then it types `/reload-plugins`, reads the line again, and sends Enter, as a key of its own, only if the line is
 exactly that text and the pane is still idle and unfocused. Never any other text, never a line with anything typed
-in it, never a focused pane.
+in it, never a focused pane. A draft that appears on the line meanwhile (someone typed at the same moment) gets no
+Enter; when it reads as the draft followed by the text, the text is taken back out (put_back).
 
 `state` in the result: `waiting` (with `why`), `typed`, `stopped: <why>`, or `gave up: <why>` once `until` passed.
 An ended request's file is removed. Two passes never try one request at once (a lock on its file).
@@ -41,6 +42,7 @@ TEXT = "/reload-plugins"  # fixed: this plugin types nothing else
 PROMPT = "❯"
 WAIT = 600  # seconds a request waits by default
 SETTLE = float(os.environ.get("CLAUDE_RELOAD_SETTLE", "0.5"))  # Enter apart from the text, and the line read again
+SETTLE_READS = 6  # reads, SETTLE apart, for a line someone is typing into to stop changing
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OTHER = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]|\r")  # every CSI but SGR (m), which typed() reads
 RULE = "─"
@@ -146,6 +148,40 @@ def put(result: Path, **kw) -> None:
     tmp.replace(result)
 
 
+def settled(pid: str) -> str | None:
+    """The input box once two reads SETTLE apart agree (a person typing has paused); None when it keeps changing over
+    SETTLE_READS reads, or cannot be read."""
+    last = read_box(pid)
+    for _ in range(SETTLE_READS):
+        time.sleep(SETTLE)
+        now = read_box(pid)
+        if now == last:
+            return now
+        last = now
+    return None
+
+
+def put_back(pid: str) -> str:
+    """A draft appeared between the check and the Enter: someone typed while /reload-plugins went in. No Enter, ever.
+    When the line reads the draft with the text after it (the cursor right after ours), the text is taken back out with
+    as many backspaces, and the line read again; any other mix is left as it stands, since a key that missed would
+    delete the person's own characters. Returns why it stopped."""
+    line = settled(pid)
+    if line is None:
+        return f"a draft appeared while {TEXT} was typed and kept changing; left as it stands, no Enter sent"
+    draft = line[:-len(TEXT)] if line.endswith(TEXT) else None
+    if draft is None or "\n" in line or not draft.strip():
+        return (f"a draft appeared while {TEXT} was typed: the line reads {line!r:.80}; left as it stands, "
+                "no Enter sent")
+    herdr("pane", "send-keys", pid, *["backspace"] * len(TEXT))
+    time.sleep(SETTLE)
+    after = read_box(pid)
+    if after is not None and after.strip() == draft.strip():
+        return f"a draft appeared while {TEXT} was typed: {TEXT} taken back out, the draft left as typed, no Enter sent"
+    return (f"a draft appeared while {TEXT} was typed; taking {TEXT} back out left the line reading {after!r:.80}, "
+            f"not the draft {draft!r:.80}; no Enter sent")
+
+
 def attempt(pid: str, session: str) -> tuple[str, str]:
     """One try at PID: ('typed', ''), ('waiting', why) or ('stopped', why)."""
     p = pane(pid)
@@ -164,9 +200,10 @@ def attempt(pid: str, session: str) -> tuple[str, str]:
     herdr("pane", "send-text", pid, TEXT)
     time.sleep(SETTLE)
     now = read_box(pid)
-    if now is None or typed_part(now) != TEXT:
-        return "stopped", (f"after typing, the input line read {now!r:.80}, not {TEXT}; left as it stands, "
-                           "no Enter sent")
+    if now is None:
+        return "stopped", f"after typing, no input box could be read; {TEXT} may be on the line, no Enter sent"
+    if typed_part(now) != TEXT:
+        return "stopped", put_back(pid)
     q = pane(pid)  # once more just before Enter: a person who focused it, or a turn begun since the text went in
     if q.get("focused") or q.get("agent_status") not in ("idle", "done"):
         return "stopped", (f"the pane was {'focused' if q.get('focused') else q.get('agent_status')} after {TEXT} "

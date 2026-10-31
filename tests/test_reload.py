@@ -122,13 +122,43 @@ def test_another_session_in_the_pane_stops_it(H):
     assert H.typed() == [] and H.queued() == []
 
 
-def test_a_draft_appearing_while_typing_gets_no_enter(H):
-    """a person typing at the same moment: the line is not exactly /reload-plugins, so nothing is submitted"""
+def test_a_draft_appearing_before_the_text_is_put_back(H):
+    """someone typed at the same moment, ahead of the text: no Enter, and the text is taken back out with as many
+    backspaces, the person's draft left exactly as they typed it"""
     H.state()
     H.request()
-    H.run(FAKE_HERDR_RACE_AFTER="hel", FAKE_HERDR_DEAF="1")
-    assert H.result()["state"].startswith("stopped:") and "no Enter" in H.result()["state"], H.result()
-    assert ["enter"] not in H.typed() and H.submitted() == [], H.calls()
+    H.run(FAKE_HERDR_RACE_BEFORE="fix the te")
+    assert "taken back out, the draft left as typed, no Enter sent" in H.result()["state"], H.result()
+    assert H.line() == "fix the te" and H.submitted() == [], H.calls()
+    assert H.typed() == [[TEXT], ["backspace"] * len(TEXT)], H.calls()
+
+
+def test_a_draft_typed_after_the_text_is_left_as_it_stands(H):
+    """typed after the text, the cursor sits past the person's characters: a backspace would delete theirs, so the
+    line is left as it stands, no key sent, and the result says what it reads"""
+    H.state()
+    H.request()
+    H.run(FAKE_HERDR_RACE_AFTER="hel")
+    assert "left as it stands, no Enter sent" in H.result()["state"] and "/reload-pluginshel" in H.result()["state"]
+    assert H.typed() == [[TEXT]] and H.line() == TEXT + "hel" and H.submitted() == []
+
+
+def test_a_put_back_that_did_not_take_says_what_the_line_reads(H):
+    """the backspaces sent, the line read again: one that is not the draft is said, never taken for put back"""
+    H.state()
+    H.request()
+    H.run(FAKE_HERDR_RACE_BEFORE="fix", FAKE_HERDR_DEAF="1")
+    assert "left the line reading 'fix/reload-plugins', not the draft 'fix'" in H.result()["state"], H.result()
+    assert H.submitted() == []
+
+
+def test_a_draft_still_being_typed_is_left_alone(H):
+    """a line that keeps changing over the settle reads is someone typing now: no key is sent into it"""
+    H.state()
+    H.request()
+    H.run(FAKE_HERDR_RACE_BEFORE="fix", FAKE_HERDR_TYPING="x")
+    assert "kept changing; left as it stands" in H.result()["state"], H.result()
+    assert H.typed() == [[TEXT]] and H.submitted() == []
 
 
 @pytest.mark.parametrize("after", ['{"focused": true}', '{"agent_status": "working"}'], ids=["focused", "busy"])

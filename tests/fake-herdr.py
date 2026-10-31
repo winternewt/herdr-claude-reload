@@ -7,7 +7,8 @@ when the line is empty), a rule, a footer; a file `screen` there is answered ins
 
 `pane send-text` inserts its text at the cursor, after $FAKE_HERDR_RACE_BEFORE and before $FAKE_HERDR_RACE_AFTER when
 set (a person typing at the same moment), then merges $FAKE_HERDR_AFTER, a JSON object, into pane.json (a person who
-focused the pane, a turn begun). `pane send-keys` plays its keys on the line: enter submits it (submitted.log),
+focused the pane, a turn begun); after it, each `pane read` first inserts $FAKE_HERDR_TYPING at the cursor when set
+(a person still typing). `pane send-keys` plays its keys on the line: enter submits it (submitted.log),
 backspace, left and right edit it; with $FAKE_HERDR_DEAF set, the keys are logged and change nothing. $FAKE_HERDR_MENU
 is drawn after a line that starts with a slash (the client's slash menu). Every call is appended to calls.log; with a
 file `fail` present, every call exits 1."""
@@ -35,6 +36,11 @@ if cmd == ["pane", "get"]:
     print(json.dumps({"id": "cli:pane:get", "result": {"pane": json.loads((d / "pane.json").read_text()),
                                                        "type": "pane_info"}}))
 elif cmd == ["pane", "read"]:
+    if os.environ.get("FAKE_HERDR_TYPING") and (d / "typed").exists():  # a person still typing: more at each read
+        c = inp["cursor"]
+        inp.update(text=inp["text"][:c] + os.environ["FAKE_HERDR_TYPING"] + inp["text"][c:],
+                   cursor=c + len(os.environ["FAKE_HERDR_TYPING"]))
+        save()
     if (d / "screen").exists():
         sys.stdout.write((d / "screen").read_text())
     else:
@@ -48,6 +54,7 @@ elif cmd == ["pane", "send-text"]:
     c = inp["cursor"]
     inp.update(text=inp["text"][:c] + ins + inp["text"][c:], cursor=c + len(ins))
     save()
+    (d / "typed").touch()
     if os.environ.get("FAKE_HERDR_AFTER"):
         (d / "pane.json").write_text(json.dumps({**json.loads((d / "pane.json").read_text()),
                                                  **json.loads(os.environ["FAKE_HERDR_AFTER"])}))

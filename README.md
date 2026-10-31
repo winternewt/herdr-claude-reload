@@ -26,9 +26,21 @@ At each try, read live from herdr:
 
 Then it types `/reload-plugins`, waits half a second, and reads the line again. Enter is sent, as a key of its own,
 only if the line is exactly `/reload-plugins` (the client's slash menu, printed past a column gap, is allowed) **and**
-herdr still says the pane is idle and unfocused. Otherwise it stops with no Enter: a line that changed is left as it
-stands; a line holding only `/reload-plugins` in a pane that just got focus or started a turn is left there for the
-person to see.
+herdr still says the pane is idle and unfocused. Otherwise it stops with no Enter. A line holding only
+`/reload-plugins` in a pane that just got focus or started a turn is left there for the person to see.
+
+### A draft that appears while it types
+
+If someone typed into the pane in the half second between the check and the Enter, the line holds their text and
+ours. Nothing is ever submitted then. The plugin first waits for the line to stop changing (up to six reads, half a
+second apart; a line still changing is left alone). Then:
+
+- **Their text, then `/reload-plugins`** (they typed just before ours went in, so the cursor sits right after our
+  text): it sends exactly 15 backspaces, reads the line again, and reports the draft put back only if the line now
+  reads their text.
+- **`/reload-plugins`, then their text, or the two mixed:** it sends nothing and leaves the line as it stands. The
+  cursor sits somewhere in their text, and the screen does not show where (nor trailing spaces), so any key it sent
+  could delete their characters instead of ours. The result says what the line reads.
 
 It never types any other text: `/reload-plugins` is fixed in the code, not taken from the request, so the plugin
 cannot be used to type arbitrary input into a pane.
@@ -96,7 +108,7 @@ The plugin sets:
 
 | Key | Meaning |
 |---|---|
-| `state` | `waiting`, `typed`, `stopped: <why>`, or `gave up: <why>` |
+| `state` | `waiting`, `typed`, `stopped: <why>` (a draft put back, or left, is a stop), or `gave up: <why>` |
 | `why` | while `waiting`: what it waits for (`the agent is working`, `the pane is focused`, `the input line holds a draft`, …) |
 | `tries` | how many tries were made |
 | `until` | the deadline in force |
