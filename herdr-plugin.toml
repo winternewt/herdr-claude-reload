@@ -1,8 +1,8 @@
 id = "claude-reload"
 name = "Claude Code plugin reload"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.9.5"
-description = "Types /reload-plugins into a named Claude Code pane once herdr says it is idle and unfocused and its input line is empty"
+description = "Types /reload-plugins, or /mcp reconnect all, into a named Claude Code pane once herdr says it is idle and unfocused and its input line is empty, panes ten seconds apart"
 platforms = ["linux"]
 
 # A caller queues a request file, then invokes this action; see the README. Every run is one bounded pass over the
@@ -10,7 +10,7 @@ platforms = ["linux"]
 [[actions]]
 id = "reload"
 title = "Claude reload: try the queued requests now"
-description = "Types /reload-plugins into each queued pane that is idle, unfocused and empty now"
+description = "Types the queued command into each queued pane that is idle, unfocused and empty now, ten seconds apart"
 contexts = ["global"]
 command = ["sh", "bin/run.sh"]
 

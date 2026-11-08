@@ -245,3 +245,58 @@ def test_the_manifest_declares_the_action_and_both_events():
     assert sorted(e["on"] for e in m["events"]) == ["pane.agent_status_changed", "pane.focused"]
     for entry in m["actions"] + m["events"]:
         assert entry["command"] == ["sh", "bin/run.sh"]
+
+
+MCP = "/mcp reconnect all"
+
+
+def test_the_request_may_name_the_second_command(H):
+    """`text` picks one of the two fixed commands: `/mcp reconnect all` typed and entered as /reload-plugins is"""
+    H.state()
+    H.request(text=MCP)
+    H.run()
+    assert H.result()["state"] == "typed" and H.result()["text"] == MCP, H.result()
+    assert H.typed() == [[MCP], ["enter"]] and H.submitted() == [MCP], H.calls()
+
+
+def test_any_other_text_is_a_stop_and_nothing_is_typed(H):
+    H.state()
+    H.request(text="/clear")
+    H.run()
+    assert H.result()["state"].startswith("stopped: the text '/clear' is not one of"), H.result()
+    assert H.typed() == [] and H.queued() == [], H.calls()
+
+
+def test_two_panes_ready_at_once_are_typed_a_gap_apart(H):
+    """the second waits on the gap alone, and the pass that typed the first goes over the queue again once it passed"""
+    import time
+    H.state()
+    H.request("r1")
+    H.request("r2")
+    t = time.monotonic()
+    r = H.run(CLAUDE_RELOAD_GAP="0.6", CLAUDE_RELOAD_BUDGET="5")
+    assert r.returncode == 0, r
+    assert time.monotonic() - t >= 0.6
+    assert H.result("r1")["state"] == "typed" and H.result("r2")["state"] == "typed", (H.result("r1"), H.result("r2"))
+    assert H.result("r2")["tries"] == 2 and H.submitted() == [TEXT, TEXT] and H.queued() == []
+
+
+def test_past_its_budget_a_pass_leaves_the_rest_waiting_on_the_gap(H):
+    H.state()
+    H.request("r1")
+    H.request("r2")
+    H.run(CLAUDE_RELOAD_GAP="0.6", CLAUDE_RELOAD_BUDGET="0.1")
+    assert H.result("r1")["state"] == "typed", H.result("r1")
+    assert H.result("r2")["state"] == "waiting" and H.result("r2")["why"].startswith("spacing: "), H.result("r2")
+    assert H.submitted() == [TEXT] and H.queued() == ["r2.json"]
+
+
+def test_a_later_pass_within_the_gap_types_nothing(H):
+    """the gap holds across passes, kept in the config dir: herdr's next event inside it types nothing"""
+    H.state()
+    H.request("r1")
+    H.run(CLAUDE_RELOAD_GAP="30")
+    H.request("r2")
+    H.run(CLAUDE_RELOAD_GAP="30", event="pane.agent_status_changed")
+    assert H.result("r2")["state"] == "waiting" and "spacing" in H.result("r2")["why"], H.result("r2")
+    assert H.submitted() == [TEXT]

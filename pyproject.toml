@@ -1,6 +1,6 @@
 [project]
 name = "herdr-claude-reload"
-version = "0.1.0"
+version = "0.1.1"
 description = "A herdr plugin: /reload-plugins typed into a named Claude Code pane once it is idle, unfocused and its input empty"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -12,6 +12,9 @@ work. This plugin is the careful version of that script.
 It is a building block: something else decides *that* a pane should reload (a version check, a release watcher, your
 own script) and queues a request; the plugin decides *when*.
 
+A request may ask for the one other command the plugin knows, `/mcp reconnect all`, which retries a plugin's MCP
+server that failed to connect (something `/reload-plugins` is not documented to do).
+
 ## What it checks
 
 At each try, read live from herdr:
@@ -42,8 +45,9 @@ second apart; a line still changing is left alone). Then:
   cursor sits somewhere in their text, and the screen does not show where (nor trailing spaces), so any key it sent
   could delete their characters instead of ours. The result says what the line reads.
 
-It never types any other text: `/reload-plugins` is fixed in the code, not taken from the request, so the plugin
-cannot be used to type arbitrary input into a pane.
+It never types any other text: the two commands, `/reload-plugins` and `/mcp reconnect all`, are fixed in the code,
+and the request only picks one of them (any other `text` is a stop, and nothing is typed), so the plugin cannot be
+used to type arbitrary input into a pane.
 
 ## When it tries
 
@@ -54,6 +58,12 @@ herdr has no event for the text of an input line, so the plugin cannot wait on t
 - at every `pane.focused` event (the focus moved away from a pane).
 
 Each run is one pass over the queue, one try per request, and then it exits: nothing keeps running between events.
+
+Panes are typed **ten seconds apart**, across every run on the machine. Each command starts all the plugin servers of
+its session again, and a release once reloaded every pane at once: under that load a server missed the client's 30 s
+connect limit. The moment of the last text typed is kept in the config dir (`last-typed`); a pane ready sooner waits,
+its `why` saying `spacing: …`. A run that typed one pane and left another waiting on the gap alone sleeps out the gap
+and goes over the queue again, for at most a minute in all; anything left then waits for the next event.
 With no request queued, the event hooks exit at once without starting Python. A request has a deadline; the first
 run after it gives the request up. Two runs that start together (the action and an event) never try one request
 twice: each request file is locked while it is tried.
@@ -64,15 +74,20 @@ Requirements: herdr 0.9.5 or later, POSIX `sh`, Python 3.11 or later as `python3
 herdr's Claude Code integration (`herdr integration install claude`), without which herdr does not know which session
 runs in which pane or whether it is idle.
 
-From a local checkout:
+From a local checkout, as run on herdr 0.9.5:
 
 ```sh
-herdr plugin link /path/to/herdr-claude-reload
-herdr plugin list --plugin claude-reload        # enabled: yes
-herdr plugin action list --plugin claude-reload  # claude-reload.reload
+herdr integration status                         # claude: current (needed, see above)
+herdr plugin link /path/to/herdr-claude-reload   # linked, and enabled by default
+herdr plugin enable claude-reload                # only if the list below says disabled
+herdr plugin list                                # claude-reload (...) enabled
+herdr plugin action list --plugin claude-reload  # the action "reload"
 ```
 
-Once published, from GitHub: `herdr plugin install OWNER/herdr-claude-reload`.
+herdr 0.9.5 refuses `herdr plugin link --enabled PATH` ("unknown option: PATH"): give the path alone, as above.
+`link` registers the checkout in place (`plugin_root` is the checkout), not a copy of it.
+
+Once published, from GitHub: `herdr plugin install winternewt/herdr-claude-reload --ref v0.1.1`.
 
 Linux only so far (`platforms = ["linux"]`); nothing in it is Linux-specific, but it has not been run elsewhere.
 
@@ -86,7 +101,7 @@ A caller queues a request, then invokes the action.
    to a temporary name in the same folder and rename it, so a run never reads half a file:
 
    ```json
-   {"pane": "w1:p2", "session": "6f1c…", "until": 1793450000, "result": "/path/to/result.json"}
+   {"pane": "w1:p2", "session": "6f1c…", "until": 1793450000, "result": "/path/to/result.json", "text": "/reload-plugins"}
    ```
 
    | Key | Required | Meaning |
@@ -95,6 +110,7 @@ A caller queues a request, then invokes the action.
    | `session` | no | The agent session id the pane must still run (`agent_session.value` in `herdr pane get`). |
    | `until` | no | Deadline, Unix seconds. Default: ten minutes after the request was queued. |
    | `result` | no | A JSON file the outcome is merged into. Default: `results/<id>.json` beside `requests/`. |
+   | `text` | no | `/reload-plugins` (the default) or `/mcp reconnect all`; anything else is a stop. From 0.1.1. |
 
 3. Invoke the action: `herdr plugin action invoke claude-reload.reload`. It returns at once; the run happens in the
    herdr server.
@@ -115,6 +131,7 @@ The plugin sets:
 | `tries` | how many tries were made |
 | `until` | the deadline in force |
 | `request` | the request's id |
+| `text` | the command the request asked for (from 0.1.1) |
 | `at` | when the result was last written, Unix seconds |
 
 `typed`, `stopped` and `gave up` end the request: its file is removed. A request still `waiting` once `until` has
